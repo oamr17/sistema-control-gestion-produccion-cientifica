@@ -1,0 +1,5 @@
+backend/data/demo/human_review_scope_demo.pdf binary
+backend/app/migrations/versions/*.py text eol=lf
+backend/scripts/configure_human_review_privileges.py text eol=lf
+docs/diseno/specs/2026-08-24-prototype-handoff-stabilization-design.md text eol=lf
+docs/diseno/plans/2026-08-24-prototype-handoff-stabilization-implementation.md text eol=lf

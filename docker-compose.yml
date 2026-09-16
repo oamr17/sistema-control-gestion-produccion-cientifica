@@ -1,0 +1,137 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_OWNER_USER:?POSTGRES_OWNER_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_OWNER_PASSWORD:?POSTGRES_OWNER_PASSWORD is required}
+    ports:
+      - "${POSTGRES_PORT:?POSTGRES_PORT is required}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    ports:
+      - "${MINIO_API_PORT:?MINIO_API_PORT is required}:9000"
+      - "${MINIO_CONSOLE_PORT:?MINIO_CONSOLE_PORT is required}:9001"
+    volumes:
+      - minio_data:/data
+
+  n8n:
+    image: n8nio/n8n:1.121.0
+    environment:
+      N8N_HOST: ${N8N_HOST:?N8N_HOST is required}
+      N8N_PORT: ${N8N_PORT:?N8N_PORT is required}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:?N8N_PROTOCOL is required}
+    ports:
+      - "${N8N_PUBLIC_PORT:?N8N_PUBLIC_PORT is required}:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  postgres-app-role:
+    image: postgres:16-alpine
+    restart: "no"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        printf '%s\n' \
+          "SELECT format('CREATE ROLE %I LOGIN', :'app_user') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_user') \gexec" \
+          "SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', :'app_user', :'app_password') \gexec" \
+          "SELECT format('GRANT CONNECT ON DATABASE %I TO %I', current_database(), :'app_user') \gexec" \
+          "SELECT format('GRANT USAGE ON SCHEMA public TO %I', :'app_user') \gexec" |
+        psql --set=ON_ERROR_STOP=1 \
+          --set=app_user="$${POSTGRES_APP_USER}" \
+          --set=app_password="$${POSTGRES_APP_PASSWORD}" \
+          --set=owner_user="$${POSTGRES_OWNER_USER}"
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB:?POSTGRES_DB is required}
+      PGUSER: ${POSTGRES_OWNER_USER:?POSTGRES_OWNER_USER is required}
+      PGPASSWORD: ${POSTGRES_OWNER_PASSWORD:?POSTGRES_OWNER_PASSWORD is required}
+      POSTGRES_OWNER_USER: ${POSTGRES_OWNER_USER:?POSTGRES_OWNER_USER is required}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:?POSTGRES_APP_USER is required}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: scientific-production-backend:local
+    environment:
+      DATABASE_URL: ${COMPOSE_APP_DATABASE_URL:?COMPOSE_APP_DATABASE_URL is required}
+      APP_ENV: ${APP_ENV:?APP_ENV is required}
+      DEMO_MODE: ${DEMO_MODE:?DEMO_MODE is required}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:?SEED_DEMO_DATA is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:?JWT_ALGORITHM is required}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:?ACCESS_TOKEN_EXPIRE_MINUTES is required}
+      CORS_ORIGINS: '${CORS_ORIGINS:?CORS_ORIGINS is required}'
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:?MINIO_ENDPOINT is required}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}
+      MINIO_BUCKET: ${MINIO_BUCKET:?MINIO_BUCKET is required}
+      EVIDENCE_ALLOWED_EXTENSIONS: '${EVIDENCE_ALLOWED_EXTENSIONS:?EVIDENCE_ALLOWED_EXTENSIONS is required}'
+      EVIDENCE_ALLOWED_MIME_TYPES: '${EVIDENCE_ALLOWED_MIME_TYPES:?EVIDENCE_ALLOWED_MIME_TYPES is required}'
+      EVIDENCE_MAX_BYTES: ${EVIDENCE_MAX_BYTES:?EVIDENCE_MAX_BYTES is required}
+      DROPBOX_CLIENT_ID: ${DROPBOX_CLIENT_ID:-}
+      DROPBOX_CLIENT_SECRET: ${DROPBOX_CLIENT_SECRET:-}
+      DROPBOX_REFRESH_TOKEN: ${DROPBOX_REFRESH_TOKEN:-}
+      N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL:-}
+      INGEST_API_KEY: ${INGEST_API_KEY:?INGEST_API_KEY is required}
+      IMPORT_PDF_MAX_CONCURRENCY: ${IMPORT_PDF_MAX_CONCURRENCY:?IMPORT_PDF_MAX_CONCURRENCY is required}
+      IMPORT_PDF_MAX_RETRIES: ${IMPORT_PDF_MAX_RETRIES:?IMPORT_PDF_MAX_RETRIES is required}
+    ports:
+      - "${BACKEND_PORT:?BACKEND_PORT is required}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-app-role:
+        condition: service_completed_successfully
+      minio:
+        condition: service_started
+
+  prototype-bootstrap:
+    profiles: ["prototype-bootstrap"]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: scientific-production-backend:local
+    command: ["python", "scripts/init_db.py"]
+    environment:
+      DATABASE_URL: ${COMPOSE_APP_DATABASE_URL:?COMPOSE_APP_DATABASE_URL is required}
+      MIGRATION_DATABASE_URL: ${COMPOSE_MIGRATION_DATABASE_URL:?COMPOSE_MIGRATION_DATABASE_URL is required}
+      DEMO_MODE: ${DEMO_MODE:?DEMO_MODE is required}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:?SEED_DEMO_DATA is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-app-role:
+        condition: service_completed_successfully
+
+  frontend:
+    build: ./frontend
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?NEXT_PUBLIC_API_URL is required}
+    ports:
+      - "${FRONTEND_PORT:?FRONTEND_PORT is required}:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  minio_data:
+  n8n_data:

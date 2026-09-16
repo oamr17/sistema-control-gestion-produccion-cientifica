@@ -1,0 +1,10 @@
+node_modules
+.next
+__pycache__
+*.pyc
+*.pyc.*
+.pytest_cache
+.venv
+postgres_data
+minio_data
+n8n_data
