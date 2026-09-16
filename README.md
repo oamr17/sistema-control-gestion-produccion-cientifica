@@ -1,10 +1,10 @@
 # Sistema de Control de Producción Científica
 
-Sistema prototipo para centralizar participantes, producción científica,
+Sistema prototipo realizado como proyecto de titulación para centralizar participantes, producción científica,
 proyectos, metas POA, evidencias e importaciones de la Facultad de Ciencias
 Administrativas. Usa FastAPI, Next.js, PostgreSQL, MinIO y Docker Compose.
 
-Este repositorio es un **prototipo**. Las cuentas demo forman parte del
+Las cuentas demo forman parte del
 entregable y permiten recorrer los flujos principales. Un uso institucional en
 producción requiere trabajo adicional de seguridad, operación, observabilidad,
 respaldo y gobierno de datos.
